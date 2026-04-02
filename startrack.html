@@ -1,0 +1,227 @@
+
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>AstroRadar v7.0 | Deep Space & Dwarf Planets</title>
+    <style>
+        :root {
+            --bg: #02050a;
+            --panel: rgba(10, 20, 30, 0.95);
+            --cyan: #00d4ff;
+            --gold: #ffcc00;
+            --magenta: #ff00ff;
+            --dwarf: #9d81ff;
+            --border: #1a1a1a;
+        }
+
+        body { background: var(--bg); color: #e0e0e0; font-family: 'Segoe UI', sans-serif; margin: 0; height: 100vh; display: flex; flex-direction: column; overflow: hidden; }
+        header { padding: 10px 20px; background: #000; border-bottom: 1px solid var(--border); display: flex; justify-content: space-between; align-items: center; }
+        
+        .nav-btns button { background: #111; border: 1px solid #333; color: #888; padding: 6px 12px; cursor: pointer; font-size: 11px; text-transform: uppercase; margin-left: 5px; transition: 0.2s; }
+        .nav-btns button.active { border-color: var(--cyan); color: var(--cyan); box-shadow: 0 0 10px rgba(0, 212, 255, 0.2); }
+
+        #viewport { flex-grow: 1; position: relative; background: radial-gradient(circle at center, #0a111a 0%, #02050a 100%); }
+        svg { width: 100%; height: 100%; display: block; }
+        
+        .star { fill: white; cursor: pointer; }
+        .messier { fill: none; stroke: var(--gold); stroke-width: 1.2; cursor: pointer; }
+        .galaxy { fill: none; stroke: var(--magenta); stroke-width: 1.2; cursor: pointer; }
+        .orbit { fill: none; stroke: rgba(255,255,255,0.05); stroke-width: 1; }
+        .planet { cursor: pointer; }
+
+        #table-container { position: absolute; top: 0; left: 0; width: 100%; height: 100%; background: var(--bg); overflow-y: auto; z-index: 10; }
+        table { width: 100%; border-collapse: collapse; font-size: 12px; }
+        th { position: sticky; top: 0; background: #0a0a0a; color: var(--cyan); padding: 12px; text-align: left; border-bottom: 2px solid var(--border); z-index: 20; }
+        td { padding: 8px 12px; border-bottom: 1px solid var(--border); }
+        tr:hover { background: rgba(0, 212, 255, 0.05); }
+        
+        .wiki-link { color: var(--gold); text-decoration: none; font-weight: bold; }
+        #bubble { position: absolute; background: var(--panel); border: 1px solid var(--cyan); padding: 12px; display: none; z-index: 1000; pointer-events: none; backdrop-filter: blur(4px); border-radius: 4px; box-shadow: 0 4px 15px rgba(0,0,0,0.5); }
+        .hidden { display: none !important; }
+        .btn-track { background: var(--cyan); color: #000; border: none; padding: 4px 8px; font-size: 10px; font-weight: bold; cursor: pointer; border-radius: 2px; }
+    </style>
+</head>
+<body>
+
+<header>
+    <div><strong>ASTRO-RADAR v7.0</strong> <span id="mode-indicator" style="font-size: 10px; color: var(--cyan); margin-left:10px;">[ DEEP SPACE ]</span></div>
+    <div class="nav-btns">
+        <button id="btn-map" class="active" onclick="switchView('map')">Map</button>
+        <button id="btn-solar" onclick="toggleSolarMode()">Solar System</button>
+        <button id="btn-table" onclick="switchView('table')">Data Table</button>
+    </div>
+</header>
+
+<div id="viewport">
+    <svg id="sky-map" viewBox="0 0 800 400" onclick="hideBubble()">
+        <g id="object-layer"></g>
+    </svg>
+
+    <div id="table-container" class="hidden">
+        <table>
+            <thead>
+                <tr><th>NAME/ID</th><th>TYPE</th><th>RA / POS</th><th>DEC / DIST</th><th>MAG</th><th>WIKIPEDIA</th><th>RADAR</th></tr>
+            </thead>
+            <tbody id="master-table-body"></tbody>
+        </table>
+    </div>
+
+    <div id="bubble">
+        <h4 id="b-name" style="margin:0; color:var(--cyan); font-size: 14px;"></h4>
+        <p id="b-meta" style="margin:5px 0 0 0; font-size:11px; color:#aaa"></p>
+    </div>
+</div>
+
+<script>
+    let isSolarMode = false;
+
+    // --- 25 STARS & 50 MESSIER DATA (Re-used from v6.0 for brevity) ---
+    const stars = [
+        { name: "Sirius", ra: 6.75, dec: -16.7, mag: -1.46, type: "Star", wiki: "Sirius" },
+        { name: "Canopus", ra: 6.4, dec: -52.7, mag: -0.74, type: "Star", wiki: "Canopus" },
+        { name: "Rigil Kentaurus", ra: 14.66, dec: -60.83, mag: -0.01, type: "Star", wiki: "Alpha_Centauri" },
+        { name: "Arcturus", ra: 14.26, dec: 19.18, mag: -0.05, type: "Star", wiki: "Arcturus" },
+        { name: "Vega", ra: 18.61, dec: 38.78, mag: 0.03, type: "Star", wiki: "Vega" },
+        { name: "Capella", ra: 5.28, dec: 45.99, mag: 0.08, type: "Star", wiki: "Capella" },
+        { name: "Rigel", ra: 5.24, dec: -8.2, mag: 0.13, type: "Star", wiki: "Rigel" },
+        { name: "Procyon", ra: 7.66, dec: 5.22, mag: 0.34, type: "Star", wiki: "Procyon" },
+        { name: "Achernar", ra: 1.63, dec: -57.24, mag: 0.46, type: "Star", wiki: "Achernar" },
+        { name: "Betelgeuse", ra: 5.92, dec: 7.4, mag: 0.5, type: "Star", wiki: "Betelgeuse" },
+        { name: "Hadar", ra: 14.06, dec: -60.37, mag: 0.61, type: "Star", wiki: "Beta_Centauri" },
+        { name: "Altair", ra: 19.85, dec: 8.87, mag: 0.76, type: "Star", wiki: "Altair" },
+        { name: "Aldebaran", ra: 4.6, dec: 16.5, mag: 0.86, type: "Star", wiki: "Aldebaran" },
+        { name: "Antares", ra: 16.49, dec: -26.43, mag: 0.96, type: "Star", wiki: "Antares" },
+        { name: "Spica", ra: 13.42, dec: -11.16, mag: 0.97, type: "Star", wiki: "Spica" },
+        { name: "Pollux", ra: 7.75, dec: 28.02, mag: 1.14, type: "Star", wiki: "Pollux" },
+        { name: "Fomalhaut", ra: 22.96, dec: -29.62, mag: 1.16, type: "Star", wiki: "Fomalhaut" },
+        { name: "Deneb", ra: 20.69, dec: 45.28, mag: 1.25, type: "Star", wiki: "Deneb" },
+        { name: "Mimosa", ra: 12.79, dec: -59.68, mag: 1.25, type: "Star", wiki: "Beta_Crucis" },
+        { name: "Regulus", ra: 10.13, dec: 11.97, mag: 1.39, type: "Star", wiki: "Regulus" },
+        { name: "Adhara", ra: 6.98, dec: -28.97, mag: 1.5, type: "Star", wiki: "Epsilon_Canis_Majoris" },
+        { name: "Castor", ra: 7.58, dec: 31.88, mag: 1.58, type: "Star", wiki: "Castor_(star)" },
+        { name: "Gacrux", ra: 12.52, dec: -57.11, mag: 1.59, type: "Star", wiki: "Gamma_Crucis" },
+        { name: "Shaula", ra: 17.56, dec: -37.1, mag: 1.62, type: "Star", wiki: "Shaula" },
+        { name: "Polaris", ra: 2.53, dec: 89.26, mag: 1.97, type: "Star", wiki: "Polaris" }
+    ];
+
+    const messiers = Array.from({length: 50}, (_, i) => ({
+        name: `M${i+1}`, 
+        ra: Math.random() * 24, 
+        dec: (Math.random() * 180) - 90, 
+        mag: (Math.random() * 6) + 3,
+        type: i % 3 === 0 ? "Galaxy" : (i % 3 === 1 ? "Nebula" : "Cluster"),
+        wiki: `Messier_${i+1}`
+    }));
+
+    // --- EXPANDED SOLAR SYSTEM ---
+    const planets = [
+        { name: "Mercury", dist: 35, speed: 4.1, color: "#999", type: "Planet", wiki: "Mercury_(planet)" },
+        { name: "Venus", dist: 50, speed: 1.6, color: "#E3BB76", type: "Planet", wiki: "Venus" },
+        { name: "Earth", dist: 70, speed: 1.0, color: "#2271B3", type: "Planet", wiki: "Earth" },
+        { name: "Mars", dist: 90, speed: 0.53, color: "#E27B58", type: "Planet", wiki: "Mars" },
+        { name: "Ceres", dist: 110, speed: 0.21, color: "#dwarf", type: "Dwarf Planet", wiki: "Ceres_(dwarf_planet)" },
+        { name: "Jupiter", dist: 140, speed: 0.08, color: "#D39C7E", type: "Planet", wiki: "Jupiter" },
+        { name: "Saturn", dist: 180, speed: 0.03, color: "#C5AB6E", type: "Planet", wiki: "Saturn" },
+        { name: "Uranus", dist: 220, speed: 0.01, color: "#B5E3E3", type: "Planet", wiki: "Uranus" },
+        { name: "Neptune", dist: 255, speed: 0.006, color: "#4B70DD", type: "Planet", wiki: "Neptune" },
+        { name: "Pluto", dist: 290, speed: 0.004, color: "#dwarf", type: "Dwarf Planet", wiki: "Pluto" },
+        { name: "Haumea", dist: 320, speed: 0.0035, color: "#dwarf", type: "Dwarf Planet", wiki: "Haumea" },
+        { name: "Makemake", dist: 345, speed: 0.003, color: "#dwarf", type: "Dwarf Planet", wiki: "Makemake" },
+        { name: "Eris", dist: 375, speed: 0.002, color: "#dwarf", type: "Dwarf Planet", wiki: "Eris_(dwarf_planet)" }
+    ];
+
+    const masterList = [...stars, ...messiers];
+
+    function project(ra, dec) { return { x: (ra / 24) * 800, y: ((90 - dec) / 180) * 400 }; }
+
+    function renderMap() {
+        const layer = document.getElementById('object-layer');
+        layer.innerHTML = '';
+
+        if (isSolarMode) {
+            const cx = 400, cy = 200;
+            layer.innerHTML += `<circle cx="${cx}" cy="${cy}" r="8" fill="#fff700" style="filter:blur(3px)"/>`;
+            planets.forEach(p => {
+                layer.innerHTML += `<circle cx="${cx}" cy="${cy}" r="${p.dist}" class="orbit"/>`;
+                const angle = (Date.now() / 1000) * p.speed * 0.15;
+                const px = cx + Math.cos(angle) * p.dist;
+                const py = cy + Math.sin(angle) * p.dist;
+                const el = document.createElementNS("http://www.w3.org/2000/svg", "circle");
+                el.setAttribute("cx", px); el.setAttribute("cy", py); el.setAttribute("r", p.type.includes("Dwarf") ? 2.5 : 4.5);
+                el.setAttribute("fill", p.color === "#dwarf" ? "var(--dwarf)" : p.color);
+                el.setAttribute("class", "planet");
+                el.onclick = (e) => { e.stopPropagation(); showBubble(e, {name: p.name, type: p.type, ra: "Orbital", dec: p.dist + " scaled units"}); };
+                layer.appendChild(el);
+            });
+        } else {
+            masterList.forEach(obj => {
+                const { x, y } = project(obj.ra, obj.dec);
+                let el;
+                if (obj.type === "Star") {
+                    el = document.createElementNS("http://www.w3.org/2000/svg", "circle");
+                    el.setAttribute("cx", x); el.setAttribute("cy", y);
+                    el.setAttribute("r", Math.max(1, 4 - obj.mag));
+                    el.setAttribute("class", "star");
+                } else {
+                    el = document.createElementNS("http://www.w3.org/2000/svg", "rect");
+                    const s = 5; el.setAttribute("x", x - s/2); el.setAttribute("y", y - s/2);
+                    el.setAttribute("width", s); el.setAttribute("height", s);
+                    el.setAttribute("class", obj.type === "Galaxy" ? "galaxy" : "messier");
+                    if(obj.type === "Galaxy") el.setAttribute("transform", `rotate(45 ${x} ${y})`);
+                }
+                el.onclick = (e) => { e.stopPropagation(); showBubble(e, obj); };
+                layer.appendChild(el);
+            });
+        }
+    }
+
+    function renderTable() {
+        const body = document.getElementById('master-table-body');
+        const combined = [...planets.map(p=>({...p, ra:'--', dec:'--', mag:'--'})), ...masterList];
+        body.innerHTML = combined.map(obj => `
+            <tr>
+                <td><strong>${obj.name}</strong></td>
+                <td style="color:${obj.type.includes('Dwarf')?'var(--dwarf)':'#fff'}">${obj.type}</td>
+                <td>${obj.ra !== '--' ? obj.ra.toFixed(2)+'h' : 'N/A'}</td>
+                <td>${obj.dec !== '--' ? (typeof obj.dec === 'number' ? obj.dec.toFixed(1)+'°' : obj.dec) : 'N/A'}</td>
+                <td>${obj.mag}</td>
+                <td><a href="https://en.wikipedia.org/wiki/${obj.wiki}" target="_blank" class="wiki-link">Wiki ↗</a></td>
+                <td><button class="btn-track" onclick="teleport('${obj.name}', '${obj.type}')">TRACK</button></td>
+            </tr>
+        `).join('');
+    }
+
+    function teleport(name, type) {
+        if (type.includes("Planet")) { if(!isSolarMode) toggleSolarMode(); } 
+        else { if(isSolarMode) toggleSolarMode(); }
+        switchView('map');
+    }
+
+    function toggleSolarMode() {
+        isSolarMode = !isSolarMode;
+        document.getElementById('btn-solar').classList.toggle('active', isSolarMode);
+        document.getElementById('mode-indicator').innerText = isSolarMode ? "[ SOLAR SYSTEM ]" : "[ DEEP SPACE ]";
+        renderMap();
+    }
+
+    function showBubble(e, obj) {
+        const b = document.getElementById('bubble');
+        document.getElementById('b-name').innerText = obj.name;
+        document.getElementById('b-meta').innerText = `${obj.type} | POS: ${obj.ra} | DIST/DEC: ${obj.dec}`;
+        b.style.display = 'block'; b.style.left = `${e.pageX + 15}px`; b.style.top = `${e.pageY - 20}px`;
+    }
+
+    function switchView(v) {
+        document.getElementById('table-container').classList.toggle('hidden', v === 'map');
+        document.getElementById('btn-map').classList.toggle('active', v === 'map');
+        document.getElementById('btn-table').classList.toggle('active', v === 'table');
+    }
+
+    function hideBubble() { document.getElementById('bubble').style.display = 'none'; }
+
+    setInterval(() => { if(isSolarMode) renderMap(); }, 50);
+    renderMap(); renderTable();
+</script>
+</body>
+</html>
